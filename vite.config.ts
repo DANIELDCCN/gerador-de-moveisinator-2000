@@ -2,8 +2,11 @@ import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import { VitePWA } from "vite-plugin-pwa"
 
+/** Site de projeto no GitHub Pages: https://danieldccn.github.io/gerador-de-moveisinator-2000/ */
+const pagesBase = "/gerador-de-moveisinator-2000/"
+
 export default defineConfig({
-  base: "./",
+  base: pagesBase,
   plugins: [
     react(),
     VitePWA({
@@ -16,8 +19,9 @@ export default defineConfig({
         description: "Projeto de gaveteiro em MDF: peças, corte, materiais e montagem.",
         lang: "pt-BR",
         dir: "ltr",
-        start_url: "./",
-        scope: "./",
+        id: pagesBase,
+        start_url: pagesBase,
+        scope: pagesBase,
         display: "standalone",
         background_color: "#e4dfd3",
         theme_color: "#161616",

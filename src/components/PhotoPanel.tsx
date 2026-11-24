@@ -1,23 +1,27 @@
 import { useEffect, useRef, useState } from "react"
-import { formPatchFromEstimate } from "../vision/apply"
-import { geminiVisionProvider } from "../vision/gemini"
-import type { VisionEstimate } from "../vision/types"
 import type { FormState } from "../form/parse"
+import { readGeminiKey, writeGeminiKey } from "../vision/keyStorage"
+import { GEMINI_MODEL } from "../vision/reading"
+import { knownFromForm, mergePhotoReading, type MergeResult } from "../vision/merge"
+import { VisionError } from "../vision/messages"
+import { readFurniturePhoto } from "../vision/reading"
 
 interface Props {
+  form: FormState
   onApply: (patch: Partial<FormState>) => void
 }
 
-export function PhotoPanel({ onApply }: Props) {
+export function PhotoPanel({ form, onApply }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const previewRef = useRef<string | null>(null)
-  const [proxyUrl, setProxyUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
-  const [pending, setPending] = useState<VisionEstimate | null>(null)
+  const [pending, setPending] = useState<MergeResult | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [reading, setReading] = useState(false)
 
   useEffect(() => {
+    setApiKey(readGeminiKey())
     return () => {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current)
     }
@@ -33,126 +37,139 @@ export function PhotoPanel({ onApply }: Props) {
     setPreview(url)
   }
 
+  function changeKey(value: string) {
+    setApiKey(value)
+    writeGeminiKey(value)
+  }
+
+  function removeKey() {
+    setApiKey("")
+    writeGeminiKey("")
+    setMessage("Chave removida deste navegador.")
+  }
+
   async function estimate() {
     if (!file) return
-    if (!geminiVisionProvider.available) {
-      setMessage("Em breve. A leitura da foto está desligada nesta versão e nenhum arquivo é enviado.")
+    setPending(null)
+    if (!apiKey.trim()) {
+      setMessage("Informe sua chave do Gemini para ler a foto.")
       return
     }
+    setReading(true)
+    setMessage(null)
     try {
       const imageBase64 = await fileToBase64(file)
-      const result = await geminiVisionProvider.estimate({
+      const result = await readFurniturePhoto({
         imageBase64,
         mediaType: file.type || "image/jpeg",
         apiKey,
-        proxyUrl,
       })
-      setPending(result)
-      setMessage(null)
+      setPending(mergePhotoReading(knownFromForm(form), result))
     } catch (error) {
       setPending(null)
-      setMessage(error instanceof Error ? error.message : "Não foi possível ler a foto.")
+      setMessage(error instanceof VisionError ? error.message : "Não foi possível ler a foto.")
+    } finally {
+      setReading(false)
     }
   }
+
+  const canApply = pending != null && Object.keys(pending.patch).length > 0
 
   return (
     <section className="panel" aria-labelledby="foto-titulo">
       <form onSubmit={(event) => event.preventDefault()}>
-      <h2 id="foto-titulo">Foto do móvel</h2>
-      <p>
-        Em breve, uma leitura da foto pode sugerir altura, largura, profundidade e quantidade de gavetas. A visão não
-        calcula o projeto: você confirma os números e o motor é que faz a conta.
-      </p>
-      <div className="field file-field">
-        <label htmlFor="foto" className="btn btn-secondary">
-          Escolher uma imagem
-        </label>
-        <input
-          id="foto"
-          className="visually-hidden"
-          type="file"
-          accept="image/*"
-          onChange={(event) => choose(event.target.files?.[0] ?? null)}
-        />
-      </div>
-      {preview ? (
-        <figure className="photo-preview">
-          <img src={preview} alt={file ? `Prévia da foto ${file.name}` : "Prévia da foto"} />
-          <figcaption>{file?.name}. A foto fica só nesta aba.</figcaption>
-        </figure>
-      ) : (
-        <p className="hint">Nenhuma foto escolhida. O projeto segue com as medidas digitadas.</p>
-      )}
-      <fieldset className="future">
-        <legend>Preparação da leitura automática</legend>
-        <div className="field">
-          <label htmlFor="proxy">Endereço do proxy</label>
-          <p id="proxy-dica" className="hint">
-            Quando a etapa existir, a chave vai para um proxy seu. Não deixe chave nenhuma no código.
-          </p>
+        <h2 id="foto-titulo">Foto do móvel</h2>
+        <p>
+          A foto só sugere. A conta do projeto continua no navegador, sem a chave. Apague uma medida se quiser que a
+          foto a estime. O que estiver digitado não muda.
+        </p>
+        <div className="field file-field">
+          <label htmlFor="foto" className="btn btn-secondary">
+            Escolher uma imagem
+          </label>
           <input
-            id="proxy"
-            value={proxyUrl}
-            autoComplete="off"
-            aria-describedby="proxy-dica"
-            onChange={(event) => setProxyUrl(event.target.value)}
+            id="foto"
+            className="visually-hidden"
+            type="file"
+            accept="image/*"
+            onChange={(event) => choose(event.target.files?.[0] ?? null)}
           />
         </div>
-        <div className="field">
-          <label htmlFor="api-key">Chave de API</label>
-          <p id="chave-dica" className="hint">
-            Fica só na memória desta aba. Não é salva e não é enviada enquanto a leitura estiver desligada.
-          </p>
-          <input
-            id="api-key"
-            type="password"
-            value={apiKey}
-            autoComplete="off"
-            aria-describedby="chave-dica"
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </div>
-        <button type="button" className="btn btn-secondary" disabled={!file} onClick={() => void estimate()}>
-          Estimar medidas pela foto
-        </button>
-        <p id="visao-nota" className="hint">
-          Estado: {geminiVisionProvider.available ? "ligada" : "desligada, em breve"}.
-        </p>
-      </fieldset>
-      {message ? (
-        <p className="callout" role="status">
-          <span className="badge">Nota</span> {message}
-        </p>
-      ) : null}
-      {pending ? (
-        <div className="confirm" role="region" aria-labelledby="confirmar-visao">
-          <h3 id="confirmar-visao">Confirme antes de usar</h3>
-          <p>Isto é sugestão da foto. Nada entra na conta até você aceitar.</p>
-          <ul>
-            {pending.heightMm != null ? <li>Altura: {pending.heightMm} mm</li> : null}
-            {pending.widthMm != null ? <li>Largura: {pending.widthMm} mm</li> : null}
-            {pending.depthMm != null ? <li>Profundidade: {pending.depthMm} mm</li> : null}
-            {pending.drawerCount != null ? <li>Gavetas: {pending.drawerCount}</li> : null}
-            <li>{pending.notes}</li>
-          </ul>
+        {preview ? (
+          <figure className="photo-preview">
+            <img src={preview} alt={file ? `Prévia da foto ${file.name}` : "Prévia da foto"} />
+            <figcaption>{file?.name}. A foto fica só nesta aba, até você pedir a leitura.</figcaption>
+          </figure>
+        ) : (
+          <p className="hint">Nenhuma foto escolhida. O projeto segue com as medidas digitadas.</p>
+        )}
+        <fieldset>
+          <legend>Sua chave do Gemini</legend>
+          <div className="field">
+            <label htmlFor="api-key">Sua chave do Gemini</label>
+            <p id="chave-dica" className="hint">
+              A chave fica só neste navegador e só é enviada ao Google para ler a foto. Ela não entra no projeto nem em
+              outro servidor. O modelo é {GEMINI_MODEL}.
+            </p>
+            <input
+              id="api-key"
+              type="password"
+              value={apiKey}
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="chave-dica"
+              onChange={(event) => changeKey(event.target.value)}
+            />
+          </div>
           <div className="actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                onApply(formPatchFromEstimate(pending))
-                setPending(null)
-                setMessage("Sugestões copiadas para o formulário. Confira cada campo.")
-              }}
-            >
-              Usar estas sugestões
+            <button type="button" className="btn btn-secondary" onClick={removeKey}>
+              Remover chave
             </button>
-            <button type="button" className="btn btn-secondary" onClick={() => setPending(null)}>
-              Descartar
+            <button type="button" className="btn" disabled={!file || reading} onClick={() => void estimate()}>
+              {reading ? "Lendo a foto…" : "Estimar pela foto"}
             </button>
           </div>
-        </div>
-      ) : null}
+        </fieldset>
+        {message ? (
+          <p className="callout" role="alert">
+            <span className="badge">Nota</span> {message}
+          </p>
+        ) : null}
+        {pending ? (
+          <div className="confirm" role="region" aria-labelledby="confirmar-visao">
+            <h3 id="confirmar-visao">Confirme antes de usar</h3>
+            <p>Cada linha abaixo é uma estimativa. Nada entra na conta até você confirmar.</p>
+            {pending.needsAnchor ? (
+              <p>Para transformar a proporção em milímetros, deixe pelo menos uma medida preenchida.</p>
+            ) : null}
+            <ul className="estimates">
+              {pending.lines.map((line) => (
+                <li key={line.id}>
+                  <span className="badge">estimativa</span>
+                  <strong>{line.label}. </strong>
+                  {line.text}
+                </li>
+              ))}
+            </ul>
+            <div className="actions">
+              <button
+                type="button"
+                className="btn"
+                disabled={!canApply}
+                onClick={() => {
+                  onApply(pending.patch)
+                  setPending(null)
+                  setMessage("Campos vazios preenchidos com a estimativa. Confira cada número.")
+                }}
+              >
+                {canApply ? "Preencher os campos vazios" : "Nada para preencher"}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setPending(null)}>
+                Descartar
+              </button>
+            </div>
+          </div>
+        ) : null}
       </form>
     </section>
   )

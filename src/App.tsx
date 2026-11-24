@@ -46,7 +46,7 @@ export default function App() {
       </p>
       <main className="layout">
         <div className="stack">
-          <PhotoPanel onApply={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+          <PhotoPanel form={form} onApply={(patch) => setForm((current) => ({ ...current, ...patch }))} />
           <ProjectForm
             form={form}
             errors={errors}
@@ -68,8 +68,8 @@ export default function App() {
       </main>
       <footer className="site-footer">
         <p>
-          Oficina Clara roda no navegador. Nada do formulário é enviado a um servidor. A etapa de foto está desligada.
-          Código livre, pronto para GitHub Pages.
+          Oficina Clara roda no navegador. As medidas não saem daqui. A foto só vai ao Google se você pedir a leitura com a
+          sua chave. Código livre, pronto para GitHub Pages.
         </p>
       </footer>
     </div>

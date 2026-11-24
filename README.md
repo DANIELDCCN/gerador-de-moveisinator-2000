@@ -43,13 +43,22 @@ Nada do formulário sai do navegador. Não há servidor de aplicação.
 
 ## Como publicar no GitHub Pages
 
-O build é estático. O `base` do Vite está em `./`, então os arquivos funcionam na raiz de um site.
+O site público fica em [https://danieldccn.github.io/gerador-de-moveisinator-2000/](https://danieldccn.github.io/gerador-de-moveisinator-2000/), no repositório `DANIELDCCN/gerador-de-moveisinator-2000`.
 
-1. No repositório, em **Settings → Pages**, escolha **GitHub Actions** como fonte.
-2. O workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) roda os testes, gera `dist/` e publica a cada push na branch `main`.
-3. Se o site ficar num subcaminho (por exemplo `https://usuario.github.io/nome-do-repo/`) e algum arquivo não carregar, troque `base` em `vite.config.ts` para `"/nome-do-repo/"` e publique de novo.
+O `base` do Vite, o `start_url` e o `scope` do PWA já estão em `/gerador-de-moveisinator-2000/`. O service worker é gerado nesse mesmo caminho.
 
-Dá para publicar a pasta `dist/` em qualquer host estático. Não há variável de ambiente obrigatória.
+1. O repositório precisa ser público e estar vazio, ou já ter esta branch `main`.
+2. Em **Settings → Pages → Build and deployment → Source**, escolha **GitHub Actions**.
+3. Cada push na branch `main` dispara [`.github/workflows/pages.yml`](.github/workflows/pages.yml): testes, `npm run build` e publicação com `actions/deploy-pages`.
+
+Não há variável de ambiente obrigatória. Para ver o build deste subcaminho na sua máquina:
+
+```bash
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4181 --strictPort
+```
+
+Abra [http://127.0.0.1:4181/gerador-de-moveisinator-2000/](http://127.0.0.1:4181/gerador-de-moveisinator-2000/). A raiz sem esse caminho não é o site.
 
 ## Onde mudar os valores de referência
 
@@ -88,7 +97,7 @@ O exemplo 900 × 600 × 450 mm trava as deduções (espessura, folga, corrediça
 
 ## Roteiro
 
-1. **Visão (próxima etapa).** A pessoa manda uma foto. Um modelo (por exemplo Gemini, via um proxy pequeno e uma chave digitada na hora) só sugere altura, largura, profundidade e número de gavetas. A pessoa confirma. O motor continua sendo o único a calcular. O contrato está em `src/vision/gemini.ts`. Não há chave no repositório. Na tela, o botão responde “em breve”.
+1. **Visão, ligada.** A pessoa cola a própria chave do Gemini. Ela fica só no navegador (`localStorage`) e a foto vai direto para `gemini-3.5-flash-lite` no Google. A resposta traz tipo, gavetas, portas, proporção e confiança. Medida digitada não é substituída; a foto só completa campo vazio, e só depois da confirmação. Não há chave no repositório.
 2. **Mais móveis.** Estante, armário, bancada. Cada tipo ganha o próprio módulo puro, no mesmo estilo de `src/domain/gaveteiro.ts`.
 3. **Fase 2, outros materiais.** Metal e madeira maciça, com regras próprias de junta, folga e borda. O MDF continua o caminho já testado.
 4. **Empacotar com Capacitor** para publicar na Play Store, reaproveitando este front estático. Não faz parte deste MVP.

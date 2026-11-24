@@ -1,32 +1,24 @@
 /**
- * A etapa de visão só sugere medidas. Quem confirma é a pessoa.
+ * A visão só sugere. Quem confirma é a pessoa.
  * O motor em src/domain nunca importa este módulo.
+ * Nenhuma chave de API fica neste arquivo.
  */
 
-export interface VisionEstimate {
-  heightMm?: number
-  widthMm?: number
-  depthMm?: number
-  drawerCount?: number
+export interface GeminiFurnitureReading {
+  isFurniture: boolean
+  furnitureType: string
+  drawerCount: number | null
+  doorCount: number | null
+  /** Números relativos, não milímetros. */
+  proportions: { height: number; width: number; depth: number } | null
+  /** 0 a 1. */
+  confidence: number | null
   notes: string
 }
 
 export interface VisionRequest {
   imageBase64: string
   mediaType: string
-  /**
-   * Chave digitada na hora, no navegador. Não gravar em código, arquivo ou
-   * localStorage. Um proxy pequeno deve receber a chamada; o app estático
-   * não deve embutir segredo.
-   */
+  /** Chave digitada pela pessoa. Não gravar no repositório. */
   apiKey: string
-  /** URL do proxy informada pela pessoa. Vazia neste MVP. */
-  proxyUrl: string
-}
-
-export interface FurnitureVisionProvider {
-  readonly id: "gemini"
-  /** Ligado só quando a chamada existir de verdade. */
-  readonly available: boolean
-  estimate(request: VisionRequest): Promise<VisionEstimate>
 }

@@ -3,7 +3,6 @@ import carpentrySource from "../config/carpentry.ts?raw"
 import { CARPENTRY } from "../config/carpentry"
 import { referenceCatalog } from "../config/carpentry"
 import { parseForm, sampleForm } from "../form/parse"
-import { formPatchFromEstimate } from "../vision/apply"
 import { generateProject } from "./project"
 import { findPackingProblems } from "./packing"
 import { SAMPLE_INPUT } from "./sample"
@@ -139,10 +138,4 @@ describe("formulário e referências", () => {
     }
   })
 
-  it("a visão só preenche o que estimou", () => {
-    expect(formPatchFromEstimate({ notes: "só um palpite", drawerCount: 3 })).toEqual({
-      drawerCount: "3",
-    })
-    expect(formPatchFromEstimate({ notes: "vazio" })).toEqual({})
-  })
 })
