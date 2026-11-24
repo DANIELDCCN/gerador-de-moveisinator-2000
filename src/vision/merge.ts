@@ -2,11 +2,21 @@ import type { FormState } from "../form/parse"
 import { formatNumber } from "../domain/format"
 import type { GeminiFurnitureReading } from "./types"
 
+export const PHOTO_FIELDS = ["heightMm", "widthMm", "depthMm", "drawerCount"] as const
+export type PhotoField = (typeof PHOTO_FIELDS)[number]
+
 export interface KnownMeasurements {
   heightMm: number | null
   widthMm: number | null
   depthMm: number | null
   drawerCount: number | null
+  /** Texto atual do campo, para listar a troca e para desfazer. */
+  raw: {
+    height: string
+    width: string
+    depth: string
+    drawers: string
+  }
   /** Campo com texto digitado, mesmo que o número não sirva de âncora. */
   occupied: {
     height: boolean
@@ -20,25 +30,48 @@ export interface EstimateLine {
   id: string
   label: string
   text: string
-  /** true só quando a confirmação pode preencher um campo vazio. */
+  /** true quando a análise escreve este campo no formulário. */
   applied: boolean
 }
 
+export interface PhotoChange {
+  field: PhotoField
+  label: string
+  previous: string
+  next: string
+  /** false quando o número da foto é o mesmo que já estava no campo. */
+  changed: boolean
+}
+
 export interface MergeResult {
-  patch: Partial<Pick<FormState, "heightMm" | "widthMm" | "depthMm" | "drawerCount">>
+  patch: Partial<Pick<FormState, PhotoField>>
   lines: EstimateLine[]
+  changes: PhotoChange[]
   needsAnchor: boolean
 }
 
 const DRAWER_MIN = 1
 const DRAWER_MAX = 10
 
-export function knownFromForm(form: Pick<FormState, "heightMm" | "widthMm" | "depthMm" | "drawerCount">): KnownMeasurements {
+const FIELD_LABEL: Record<PhotoField, string> = {
+  heightMm: "Altura externa",
+  widthMm: "Largura externa",
+  depthMm: "Profundidade externa",
+  drawerCount: "Número de gavetas",
+}
+
+export function knownFromForm(form: Pick<FormState, PhotoField>): KnownMeasurements {
   return {
     heightMm: parseMeasure(form.heightMm),
     widthMm: parseMeasure(form.widthMm),
     depthMm: parseMeasure(form.depthMm),
     drawerCount: parseCount(form.drawerCount),
+    raw: {
+      height: form.heightMm,
+      width: form.widthMm,
+      depth: form.depthMm,
+      drawers: form.drawerCount,
+    },
     occupied: {
       height: form.heightMm.trim() !== "",
       width: form.widthMm.trim() !== "",
@@ -48,13 +81,18 @@ export function knownFromForm(form: Pick<FormState, "heightMm" | "widthMm" | "de
   }
 }
 
-/** A medida digitada permanece. A foto só completa campo vazio, usando a proporção. */
+/**
+ * A leitura bem-sucedida vira a estimativa principal.
+ * Ela reescreve os campos que consegue inferir, inclusive exemplo e texto já digitado.
+ * A escala em milímetros sai das medidas válidas que já estavam no formulário.
+ */
 export function mergePhotoReading(known: KnownMeasurements, reading: GeminiFurnitureReading): MergeResult {
   const lines: EstimateLine[] = []
+  const changes: PhotoChange[] = []
   const patch: MergeResult["patch"] = {}
   const proportions = reading.proportions
   const scale = proportions ? scaleFromKnown(known, proportions) : null
-  const needsAnchor = Boolean(proportions) && scale == null && hasEmptyDimension(known)
+  const needsAnchor = Boolean(proportions) && scale == null
 
   lines.push({
     id: "type",
@@ -63,16 +101,7 @@ export function mergePhotoReading(known: KnownMeasurements, reading: GeminiFurni
     applied: false,
   })
 
-  const drawerSuggestion = reading.drawerCount
-  const drawerInRange = drawerSuggestion != null && drawerSuggestion >= DRAWER_MIN && drawerSuggestion <= DRAWER_MAX
-  const applyDrawers = !known.occupied.drawers && drawerInRange
-  if (applyDrawers && drawerSuggestion != null) patch.drawerCount = String(drawerSuggestion)
-  lines.push({
-    id: "drawers",
-    label: "Gavetas",
-    text: drawerLine(known, drawerSuggestion, drawerInRange),
-    applied: applyDrawers,
-  })
+  applyDrawers(lines, patch, changes, known, reading.drawerCount)
 
   lines.push({
     id: "doors",
@@ -95,9 +124,33 @@ export function mergePhotoReading(known: KnownMeasurements, reading: GeminiFurni
     width: suggest(scale, proportions?.width),
     depth: suggest(scale, proportions?.depth),
   }
-  pushDimension(lines, patch, "height", "Altura", known.occupied.height, known.heightMm, suggestions.height)
-  pushDimension(lines, patch, "width", "Largura", known.occupied.width, known.widthMm, suggestions.width)
-  pushDimension(lines, patch, "depth", "Profundidade", known.occupied.depth, known.depthMm, suggestions.depth)
+  applyDimension(lines, patch, changes, {
+    id: "height",
+    field: "heightMm",
+    lineLabel: "Altura",
+    current: known.heightMm,
+    raw: known.raw.height,
+    suggestion: suggestions.height,
+    hasScale: scale != null,
+  })
+  applyDimension(lines, patch, changes, {
+    id: "width",
+    field: "widthMm",
+    lineLabel: "Largura",
+    current: known.widthMm,
+    raw: known.raw.width,
+    suggestion: suggestions.width,
+    hasScale: scale != null,
+  })
+  applyDimension(lines, patch, changes, {
+    id: "depth",
+    field: "depthMm",
+    lineLabel: "Profundidade",
+    current: known.depthMm,
+    raw: known.raw.depth,
+    suggestion: suggestions.depth,
+    hasScale: scale != null,
+  })
 
   const confidence = reading.confidence == null ? "não informada" : `${formatNumber(reading.confidence * 100)}%`
   lines.push({
@@ -115,7 +168,22 @@ export function mergePhotoReading(known: KnownMeasurements, reading: GeminiFurni
     })
   }
 
-  return { patch, lines, needsAnchor }
+  return { patch, lines, changes, needsAnchor }
+}
+
+/** Campos marcados pela última análise, menos o que a pessoa editou depois. */
+export function photoFieldsAfterEdit(fields: readonly PhotoField[], edited: object): PhotoField[] {
+  return fields.filter((field) => !Object.prototype.hasOwnProperty.call(edited, field))
+}
+
+/** Nova análise marca o que ela escreveu e conserva a marca nos campos que não tocou. */
+export function photoFieldsAfterAnalysis(
+  fields: readonly PhotoField[],
+  patch: Partial<Record<PhotoField, string>>,
+): PhotoField[] {
+  const written = PHOTO_FIELDS.filter((field) => patch[field] !== undefined)
+  const kept = fields.filter((field) => patch[field] === undefined)
+  return [...kept, ...written.filter((field) => !kept.includes(field))]
 }
 
 export function scaleFromKnown(
@@ -130,68 +198,101 @@ export function scaleFromKnown(
   return scales.reduce((sum, value) => sum + value, 0) / scales.length
 }
 
-function pushDimension(
+function applyDimension(
   lines: EstimateLine[],
   patch: MergeResult["patch"],
-  id: "height" | "width" | "depth",
-  label: string,
-  occupied: boolean,
-  current: number | null,
-  suggestion: number | null,
+  changes: PhotoChange[],
+  spec: {
+    id: "height" | "width" | "depth"
+    field: PhotoField
+    lineLabel: string
+    current: number | null
+    raw: string
+    suggestion: number | null
+    hasScale: boolean
+  },
 ): void {
-  const field = id === "height" ? "heightMm" : id === "width" ? "widthMm" : "depthMm"
-  if (!occupied && suggestion != null) {
-    patch[field] = String(suggestion)
+  if (spec.suggestion != null) {
+    const next = String(spec.suggestion)
+    patch[spec.field] = next
+    const changed = spec.current == null ? spec.raw.trim() !== next : spec.current !== spec.suggestion
+    changes.push({
+      field: spec.field,
+      label: FIELD_LABEL[spec.field],
+      previous: spec.raw.trim(),
+      next,
+      changed,
+    })
     lines.push({
-      id,
-      label,
-      text: `${formatNumber(suggestion)} mm. estimativa. O campo está vazio e será preenchido se você confirmar.`,
+      id: spec.id,
+      label: spec.lineLabel,
+      text: changed
+        ? `${formatNumber(spec.suggestion)} mm. estimativa. Substitui o valor anterior.`
+        : `${formatNumber(spec.suggestion)} mm. estimativa. Igual ao valor que já estava no formulário.`,
       applied: true,
     })
     return
   }
-  if (occupied) {
-    const currentText = current == null ? "o que está digitado" : `${formatNumber(current)} mm`
-    const guess = suggestion == null ? "" : ` A foto sugere ${formatNumber(suggestion)} mm.`
+  lines.push({
+    id: spec.id,
+    label: spec.lineLabel,
+    text: spec.hasScale
+      ? "sem milímetro. estimativa. A proporção desta medida não veio na leitura."
+      : "sem milímetro. estimativa. Falta uma medida válida no formulário para transformar a proporção.",
+    applied: false,
+  })
+}
+
+function applyDrawers(
+  lines: EstimateLine[],
+  patch: MergeResult["patch"],
+  changes: PhotoChange[],
+  known: KnownMeasurements,
+  suggestion: number | null,
+): void {
+  const inRange = suggestion != null && suggestion >= DRAWER_MIN && suggestion <= DRAWER_MAX
+  if (inRange && suggestion != null) {
+    const next = String(suggestion)
+    patch.drawerCount = next
+    const changed = known.drawerCount == null ? known.raw.drawers.trim() !== next : known.drawerCount !== suggestion
+    changes.push({
+      field: "drawerCount",
+      label: FIELD_LABEL.drawerCount,
+      previous: known.raw.drawers.trim(),
+      next,
+      changed,
+    })
     lines.push({
-      id,
-      label,
-      text: `${currentText} permanece.${guess} estimativa. Não substitui a medida digitada.`,
+      id: "drawers",
+      label: "Gavetas",
+      text: changed
+        ? `${suggestion}. estimativa. Substitui o valor anterior.`
+        : `${suggestion}. estimativa. Igual ao valor que já estava no formulário.`,
+      applied: true,
+    })
+    return
+  }
+  if (suggestion != null && !inRange) {
+    lines.push({
+      id: "drawers",
+      label: "Gavetas",
+      text: `${suggestion}. estimativa. Fora do limite de ${DRAWER_MIN} a ${DRAWER_MAX} gavetas, então não entra no formulário.`,
       applied: false,
     })
     return
   }
   lines.push({
-    id,
-    label,
-    text: "sem milímetro. estimativa. Falta uma medida digitada para transformar a proporção.",
+    id: "drawers",
+    label: "Gavetas",
+    text: "não deu para ver. estimativa",
     applied: false,
   })
-}
-
-function drawerLine(known: KnownMeasurements, suggestion: number | null, inRange: boolean): string {
-  if (!known.occupied.drawers && inRange && suggestion != null) {
-    return `${suggestion}. estimativa. O campo está vazio e será preenchido se você confirmar.`
-  }
-  if (known.occupied.drawers) {
-    const kept = known.drawerCount == null ? "o que está digitado" : String(known.drawerCount)
-    const guess = suggestion == null ? "" : ` A foto sugere ${suggestion}.`
-    return `${kept} permanece.${guess} estimativa. Não substitui o número digitado.`
-  }
-  if (suggestion != null && !inRange) {
-    return `${suggestion}. estimativa. Fora do limite de ${DRAWER_MIN} a ${DRAWER_MAX} gavetas, então não entra no formulário.`
-  }
-  return "não deu para ver. estimativa"
 }
 
 function suggest(scale: number | null, proportion: number | undefined): number | null {
   if (scale == null || proportion == null) return null
   const value = Math.round(scale * proportion)
   return value > 0 ? value : null
-}
-
-function hasEmptyDimension(known: KnownMeasurements): boolean {
-  return !known.occupied.height || !known.occupied.width || !known.occupied.depth
 }
 
 function parseMeasure(raw: string): number | null {

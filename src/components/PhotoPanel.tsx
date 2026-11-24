@@ -1,22 +1,30 @@
 import { useEffect, useRef, useState } from "react"
 import type { FormState } from "../form/parse"
 import { readGeminiKey, writeGeminiKey } from "../vision/keyStorage"
-import { GEMINI_MODEL } from "../vision/reading"
-import { knownFromForm, mergePhotoReading, type MergeResult } from "../vision/merge"
+import { PHOTO_FIELDS, knownFromForm, mergePhotoReading, type MergeResult, type PhotoChange, type PhotoField } from "../vision/merge"
 import { VisionError } from "../vision/messages"
-import { readFurniturePhoto } from "../vision/reading"
+import { GEMINI_MODEL, readFurniturePhoto } from "../vision/reading"
 
 interface Props {
   form: FormState
+  photoFields: readonly PhotoField[]
+  resetSignal: number
   onApply: (patch: Partial<FormState>) => void
+  onUndo: (patch: Partial<FormState>, photoFields: readonly PhotoField[]) => void
 }
 
-export function PhotoPanel({ form, onApply }: Props) {
+interface UndoState {
+  previous: Partial<FormState>
+  tags: readonly PhotoField[]
+}
+
+export function PhotoPanel({ form, photoFields, resetSignal, onApply, onUndo }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const previewRef = useRef<string | null>(null)
   const [apiKey, setApiKey] = useState("")
-  const [pending, setPending] = useState<MergeResult | null>(null)
+  const [report, setReport] = useState<MergeResult | null>(null)
+  const [undo, setUndo] = useState<UndoState | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
 
@@ -27,8 +35,12 @@ export function PhotoPanel({ form, onApply }: Props) {
     }
   }, [])
 
+  useEffect(() => {
+    setReport(null)
+    setUndo(null)
+  }, [resetSignal])
+
   function choose(next: File | null) {
-    setPending(null)
     setMessage(null)
     setFile(next)
     if (previewRef.current) URL.revokeObjectURL(previewRef.current)
@@ -50,7 +62,6 @@ export function PhotoPanel({ form, onApply }: Props) {
 
   async function estimate() {
     if (!file) return
-    setPending(null)
     if (!apiKey.trim()) {
       setMessage("Informe sua chave do Gemini para ler a foto.")
       return
@@ -64,24 +75,42 @@ export function PhotoPanel({ form, onApply }: Props) {
         mediaType: file.type || "image/jpeg",
         apiKey,
       })
-      setPending(mergePhotoReading(knownFromForm(form), result))
+      const merged = mergePhotoReading(knownFromForm(form), result)
+      setReport(merged)
+      if (Object.keys(merged.patch).length > 0) {
+        const previous: Partial<FormState> = {}
+        for (const field of PHOTO_FIELDS) {
+          if (merged.patch[field] !== undefined) previous[field] = form[field]
+        }
+        onApply(merged.patch)
+        setUndo({ previous, tags: photoFields })
+      }
     } catch (error) {
-      setPending(null)
       setMessage(error instanceof VisionError ? error.message : "Não foi possível ler a foto.")
     } finally {
       setReading(false)
     }
   }
 
-  const canApply = pending != null && Object.keys(pending.patch).length > 0
+  function undoAnalysis() {
+    if (!undo) return
+    onUndo(undo.previous, undo.tags)
+    setUndo(null)
+    setReport(null)
+    setMessage("Análise da foto desfeita. Voltaram os valores de antes.")
+  }
+
+  const wroteThisReading = report != null && Object.keys(report.patch).length > 0
+  const changed = wroteThisReading ? report.changes.filter((change) => change.changed) : []
 
   return (
     <section className="panel" aria-labelledby="foto-titulo">
       <form onSubmit={(event) => event.preventDefault()}>
         <h2 id="foto-titulo">Foto do móvel</h2>
         <p>
-          A foto só sugere. A conta do projeto continua no navegador, sem a chave. Apague uma medida se quiser que a
-          foto a estime. O que estiver digitado não muda.
+          Uma leitura bem-sucedida vira a estimativa principal: ela entra direto nos campos que consegue inferir e
+          substitui o exemplo ou o que você tinha digitado. O projeto recalcula na hora. Cada campo continua editável.
+          O que você alterar depois fica, até analisar outra foto.
         </p>
         <div className="field file-field">
           <label htmlFor="foto" className="btn btn-secondary">
@@ -101,7 +130,7 @@ export function PhotoPanel({ form, onApply }: Props) {
             <figcaption>{file?.name}. A foto fica só nesta aba, até você pedir a leitura.</figcaption>
           </figure>
         ) : (
-          <p className="hint">Nenhuma foto escolhida. O projeto segue com as medidas digitadas.</p>
+          <p className="hint">Nenhuma foto escolhida. O projeto segue com as medidas do formulário.</p>
         )}
         <fieldset>
           <legend>Sua chave do Gemini</legend>
@@ -131,19 +160,45 @@ export function PhotoPanel({ form, onApply }: Props) {
           </div>
         </fieldset>
         {message ? (
-          <p className="callout" role="alert">
+          <p className="callout" role="status">
             <span className="badge">Nota</span> {message}
           </p>
         ) : null}
-        {pending ? (
-          <div className="confirm" role="region" aria-labelledby="confirmar-visao">
-            <h3 id="confirmar-visao">Confirme antes de usar</h3>
-            <p>Cada linha abaixo é uma estimativa. Nada entra na conta até você confirmar.</p>
-            {pending.needsAnchor ? (
-              <p>Para transformar a proporção em milímetros, deixe pelo menos uma medida preenchida.</p>
+        {report ? (
+          <div className="confirm" role="region" aria-live="polite" aria-labelledby="resultado-visao">
+            <h3 id="resultado-visao">Estimativa da foto</h3>
+            {wroteThisReading ? (
+              <p>
+                Esta análise já está no formulário e o projeto foi recalculado. Campos marcados com{" "}
+                <span className="badge photo-tag">da foto</span> vieram dela. Edite o que quiser: essa edição não é
+                reescrita, a menos que você analise uma foto de novo.
+              </p>
+            ) : (
+              <p>Esta leitura não alterou o formulário.</p>
+            )}
+            {report.needsAnchor ? (
+              <p>
+                Sem uma medida válida em milímetros, a proporção não vira tamanho. Carregue o exemplo ou informe uma
+                medida e analise de novo.
+              </p>
+            ) : null}
+            {changed.length > 0 ? (
+              <>
+                <h4>O que mudou</h4>
+                <ul className="estimates">
+                  {changed.map((change) => (
+                    <li key={change.field}>
+                      <span className="badge">mudou</span>
+                      {describeChange(change)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : wroteThisReading ? (
+              <p>Nenhum número mudou. A foto confirmou o que já estava no formulário.</p>
             ) : null}
             <ul className="estimates">
-              {pending.lines.map((line) => (
+              {report.lines.map((line) => (
                 <li key={line.id}>
                   <span className="badge">estimativa</span>
                   <strong>{line.label}. </strong>
@@ -151,28 +206,30 @@ export function PhotoPanel({ form, onApply }: Props) {
                 </li>
               ))}
             </ul>
-            <div className="actions">
-              <button
-                type="button"
-                className="btn"
-                disabled={!canApply}
-                onClick={() => {
-                  onApply(pending.patch)
-                  setPending(null)
-                  setMessage("Campos vazios preenchidos com a estimativa. Confira cada número.")
-                }}
-              >
-                {canApply ? "Preencher os campos vazios" : "Nada para preencher"}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setPending(null)}>
-                Descartar
-              </button>
-            </div>
+            {undo ? (
+              <div className="actions">
+                <button type="button" className="btn" onClick={undoAnalysis}>
+                  Desfazer análise da foto
+                </button>
+              </div>
+            ) : null}
+            {undo ? (
+              <p className="hint">
+                Desfazer devolve os valores de antes da última análise que entrou no formulário, mesmo que você tenha
+                editado algum campo depois.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </form>
     </section>
   )
+}
+
+function describeChange(change: PhotoChange): string {
+  const unit = change.field === "drawerCount" ? "" : " mm"
+  const before = change.previous ? `${change.previous}${unit}` : "vazio"
+  return `${change.label}: ${before} passou a ${change.next}${unit}.`
 }
 
 async function fileToBase64(file: File): Promise<string> {

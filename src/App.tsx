@@ -5,9 +5,12 @@ import { ProjectResults } from "./components/ProjectResults"
 import { formatMm } from "./domain/format"
 import { generateProject } from "./domain/project"
 import { parseForm, sampleForm, type FormState } from "./form/parse"
+import { photoFieldsAfterAnalysis, photoFieldsAfterEdit, type PhotoField } from "./vision/merge"
 
 export default function App() {
   const [form, setForm] = useState<FormState>(sampleForm)
+  const [photoFields, setPhotoFields] = useState<PhotoField[]>([])
+  const [formEpoch, setFormEpoch] = useState(0)
   const parsed = useMemo(() => parseForm(form), [form])
   const result = useMemo(() => (parsed.input ? generateProject(parsed.input) : null), [parsed])
   const errors = [...parsed.errors, ...(result && !result.ok ? result.errors : [])]
@@ -46,13 +49,33 @@ export default function App() {
       </p>
       <main className="layout">
         <div className="stack">
-          <PhotoPanel form={form} onApply={(patch) => setForm((current) => ({ ...current, ...patch }))} />
+          <PhotoPanel
+            form={form}
+            photoFields={photoFields}
+            resetSignal={formEpoch}
+            onApply={(patch) => {
+              setForm((current) => ({ ...current, ...patch }))
+              setPhotoFields((current) => photoFieldsAfterAnalysis(current, patch))
+            }}
+            onUndo={(patch, tags) => {
+              setForm((current) => ({ ...current, ...patch }))
+              setPhotoFields([...tags])
+            }}
+          />
           <ProjectForm
             form={form}
             errors={errors}
             slideHint={slideHint}
-            onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-            onSample={() => setForm(sampleForm())}
+            photoFields={photoFields}
+            onChange={(patch) => {
+              setForm((current) => ({ ...current, ...patch }))
+              setPhotoFields((current) => photoFieldsAfterEdit(current, patch))
+            }}
+            onSample={() => {
+              setForm(sampleForm())
+              setPhotoFields([])
+              setFormEpoch((epoch) => epoch + 1)
+            }}
           />
         </div>
         <div id="resultado">

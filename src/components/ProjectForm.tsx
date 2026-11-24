@@ -1,17 +1,20 @@
 import { CARPENTRY, referenceCatalog } from "../config/carpentry"
 import type { FieldError } from "../domain/types"
 import type { FormState } from "../form/parse"
+import type { PhotoField } from "../vision/merge"
 
 interface Props {
   form: FormState
   errors: FieldError[]
   slideHint: string | null
+  photoFields: readonly PhotoField[]
   onChange: (patch: Partial<FormState>) => void
   onSample: () => void
 }
 
-export function ProjectForm({ form, errors, slideHint, onChange, onSample }: Props) {
+export function ProjectForm({ form, errors, slideHint, photoFields, onChange, onSample }: Props) {
   const message = (field: string) => errors.find((error) => error.field === field)?.message
+  const fromPhoto = (field: PhotoField) => photoFields.includes(field)
   return (
     <form
       className="panel"
@@ -53,6 +56,7 @@ export function ProjectForm({ form, errors, slideHint, onChange, onSample }: Pro
         suffix="mm"
         hint="Do piso ao topo, incluindo o roda-pé se houver."
         error={message("heightMm")}
+        fromPhoto={fromPhoto("heightMm")}
         onChange={(heightMm) => onChange({ heightMm })}
       />
       <NumberField
@@ -62,6 +66,7 @@ export function ProjectForm({ form, errors, slideHint, onChange, onSample }: Pro
         suffix="mm"
         hint="De uma lateral até a outra, por fora."
         error={message("widthMm")}
+        fromPhoto={fromPhoto("widthMm")}
         onChange={(widthMm) => onChange({ widthMm })}
       />
       <NumberField
@@ -71,6 +76,7 @@ export function ProjectForm({ form, errors, slideHint, onChange, onSample }: Pro
         suffix="mm"
         hint="Da frente até o painel traseiro, por fora."
         error={message("depthMm")}
+        fromPhoto={fromPhoto("depthMm")}
         onChange={(depthMm) => onChange({ depthMm })}
       />
 
@@ -131,6 +137,7 @@ export function ProjectForm({ form, errors, slideHint, onChange, onSample }: Pro
         suffix="un"
         hint="Frentes iguais, uma em cima da outra."
         error={message("drawerCount")}
+        fromPhoto={fromPhoto("drawerCount")}
         onChange={(drawerCount) => onChange({ drawerCount })}
       />
 
@@ -302,6 +309,7 @@ function NumberField({
   suffix,
   hint,
   error,
+  fromPhoto,
   onChange,
 }: {
   id: string
@@ -310,6 +318,7 @@ function NumberField({
   suffix: string
   hint?: string
   error?: string
+  fromPhoto?: boolean
   onChange: (value: string) => void
 }) {
   const hintId = hint ? `${id}-dica` : undefined
@@ -317,7 +326,10 @@ function NumberField({
   const described = [hintId, errorId].filter(Boolean).join(" ") || undefined
   return (
     <div className={error ? "field has-error" : "field"}>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>
+        {label}
+        {fromPhoto ? <span className="badge photo-tag">da foto</span> : null}
+      </label>
       {hint ? (
         <p id={hintId} className="hint">
           {hint}

@@ -106,6 +106,13 @@ h1 { margin: 0.15rem 0 0.4rem; font-size: clamp(2rem, 4vw, 3.1rem); max-width: 1
   vertical-align: 0.1em;
 }
 
+.photo-tag {
+  margin-left: 0.45rem;
+  margin-right: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .live {
   position: absolute;
   width: 1px;

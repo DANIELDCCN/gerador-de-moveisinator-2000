@@ -1,5 +1,5 @@
 /**
- * A visão só sugere. Quem confirma é a pessoa.
+ * A visão propõe a estimativa principal. A pessoa pode editar cada campo e desfazer.
  * O motor em src/domain nunca importa este módulo.
  * Nenhuma chave de API fica neste arquivo.
  */

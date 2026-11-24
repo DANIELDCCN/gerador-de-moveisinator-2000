@@ -2,7 +2,7 @@
 
 Gerador de projeto de **gaveteiro em MDF**. A pessoa informa as medidas de fora, a espessura, o número de gavetas, o roda-pé e a corrediça. O programa devolve peças com medida, plano de corte nas chapas, lista de materiais, passo a passo de montagem, uma vista explodida e um PDF.
 
-A conta é determinística e roda no navegador. A mesma entrada produz sempre o mesmo projeto. Nenhum modelo de IA calcula milímetro. A leitura de foto está preparada, mas **desligada** nesta versão.
+A conta é determinística e roda no navegador. A mesma entrada produz sempre o mesmo projeto. Nenhum modelo de IA calcula milímetro: a foto, quando você pede, estima tipo, gavetas e proporção, e o programa converte a proporção em milímetro usando uma medida que já estava no formulário.
 
 Feito para Daniel Carvalho, com interface em português (pt-BR), alto contraste e sem usar cor como única informação. O tipo é [Atkinson Hyperlegible](https://brailleinstitute.org/freefont). Padrões, rótulos e texto marcam o que cada peça é.
 
@@ -97,7 +97,7 @@ O exemplo 900 × 600 × 450 mm trava as deduções (espessura, folga, corrediça
 
 ## Roteiro
 
-1. **Visão, ligada.** A pessoa cola a própria chave do Gemini. Ela fica só no navegador (`localStorage`) e a foto vai direto para `gemini-3.5-flash-lite` no Google. A resposta traz tipo, gavetas, portas, proporção e confiança. Medida digitada não é substituída; a foto só completa campo vazio, e só depois da confirmação. Não há chave no repositório.
+1. **Visão, ligada.** A pessoa cola a própria chave do Gemini. Ela fica só no navegador (`localStorage`) e a foto vai direto para `gemini-3.5-flash-lite` no Google. A resposta traz tipo, gavetas, portas, proporção e confiança. Uma leitura bem-sucedida entra na hora no formulário e substitui o exemplo ou o que já estava digitado nos campos que a foto consegue inferir. Cada campo continua editável; o que a pessoa alterar depois permanece, até uma nova análise. O campo leva a marca “da foto”, e “desfazer análise da foto” devolve os valores anteriores. Não há chave no repositório.
 2. **Mais móveis.** Estante, armário, bancada. Cada tipo ganha o próprio módulo puro, no mesmo estilo de `src/domain/gaveteiro.ts`.
 3. **Fase 2, outros materiais.** Metal e madeira maciça, com regras próprias de junta, folga e borda. O MDF continua o caminho já testado.
 4. **Empacotar com Capacitor** para publicar na Play Store, reaproveitando este front estático. Não faz parte deste MVP.
